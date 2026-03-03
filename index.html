@@ -323,6 +323,9 @@
       return ops[randInt(0, ops.length-1)];
     }
 
+    // constraints:
+    // add/sub result >= 10
+    // mul/div within 1..10 and 10x table; no factor 0
     function genAdd(){
       const result = randInt(10, 100);
       const a = randInt(1, result - 1);
@@ -390,31 +393,48 @@
       return { nums, result: target };
     }
 
+    // ---- Extended language (TEXT ONLY, no operator signs) ----
     const textOnly = {
       add: [
         ({a,b}) => `Addiere ${a} und ${b}.`,
-        ({a,b}) => `Bilde die Summe von ${a} und ${b}.`,
-        ({a,b}) => `Addiere zur Zahl ${a} die Zahl ${b}.`,
-        ({a,b}) => `Erhöhe ${a} um ${b}.`
+        ({a,b}) => `Bilde die Summe aus den Zahlen ${a} und ${b}.`,
+        ({a,b}) => `Berechne die Summe von ${a} und ${b}.`,
+        ({a,b}) => `Addiere ${a} zur Zahl ${b}.`,
+        ({a,b}) => `Addiere ${b} zur Zahl ${a}.`,
+        ({a,b}) => `Zähle zur Zahl ${a} die Zahl ${b} hinzu.`,
+        ({a,b}) => `Zähle zur Zahl ${b} die Zahl ${a} hinzu.`,
+        ({a,b}) => `Erhöhe den Wert der Zahl ${a} um ${b}.`,
+        ({a,b}) => `Erhöhe den Wert der Zahl ${b} um ${a}.`
+      ],
+      addLong: [
+        ({nums}) => `Bilde die Summe aus den Zahlen ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`,
+        ({nums}) => `Berechne die Summe aus den Zahlen ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`,
+        ({nums}) => `Addiere ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`
       ],
       sub: [
         ({a,b}) => `Subtrahiere ${b} von ${a}.`,
-        ({a,b}) => `Bestimme die Differenz von ${a} und ${b}.`,
-        ({a,b}) => `Verringere ${a} um ${b}.`
+        ({a,b}) => `Berechne die Differenz von ${a} und ${b}.`,
+        ({a,b}) => `Bestimme die Differenz zwischen ${a} und ${b}.`,
+        ({a,b}) => `Ziehe ${b} von ${a} ab.`,
+        ({a,b}) => `Verringere ${a} um ${b}.`,
+        ({a,b}) => `Reduziere ${a} um ${b}.`,
+        ({a,b}) => `Nimm von ${a} die Zahl ${b} weg.`
       ],
       mul: [
         ({a,b}) => `Multipliziere ${a} mit ${b}.`,
+        ({a,b}) => `Berechne das Produkt von ${a} und ${b}.`,
         ({a,b}) => `Bestimme das Produkt von ${a} und ${b}.`,
-        ({a,b}) => `Vervielfache ${a} mit ${b}.`
+        ({a,b}) => `Vervielfache ${a} mit ${b}.`,
+        ({a,b}) => `Nimm ${a} mal ${b}.`,
+        ({a,b}) => `Berechne ${a} mal ${b}.`
       ],
       div: [
         ({a,b}) => `Dividiere ${a} durch ${b}.`,
+        ({a,b}) => `Berechne den Quotienten von ${a} und ${b}.`,
         ({a,b}) => `Bestimme den Quotienten von ${a} und ${b}.`,
-        ({a,b}) => `Wie oft passt ${b} in ${a}?`
-      ],
-      addLong: [
-        ({nums}) => `Addiere ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`,
-        ({nums}) => `Bilde die Summe von ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`
+        ({a,b}) => `Teile ${a} durch ${b}.`,
+        ({a,b}) => `Wie oft passt ${b} in ${a}?`,
+        ({a,b}) => `Verteile ${a} gleichmässig auf ${b} Gruppen. Wie viele sind in jeder Gruppe?`
       ]
     };
 
@@ -438,12 +458,13 @@
         }
         const data = genBinary(op);
         const tList = textOnly[op];
-        const t = tList[randInt(0, tList.length-1)](data);
-        return { op, text:t, result:data.result };
+        const text = tList[randInt(0, tList.length-1)](data);
+        return { op, text, result:data.result };
       }
 
+      // b/c: prompt stays TEXT ONLY; term is separate (b) or prompt (c)
       const data = genBinary(op);
-      const tList = textOnly[op];                 // prompt in b is also text-only
+      const tList = textOnly[op];
       const text = tList[randInt(0, tList.length-1)](data);
       const term = `${data.a} ${opSymbols[op]} ${data.b}`;
       return { op, text, term, result:data.result, a:data.a, b:data.b };
@@ -517,7 +538,7 @@
       }
 
       if (state.category === "b"){
-        elPromptText.textContent = task.text;    // text only
+        elPromptText.textContent = task.text;
         elTermLine.style.display = "block";
         elTermLine.innerHTML = `<span class="muted">Term:</span> ____`;
         areaMC.classList.remove("hidden");
@@ -525,7 +546,7 @@
         return;
       }
 
-      elPromptText.textContent = task.term;      // category c: term prompt (requested)
+      elPromptText.textContent = task.term;
       areaMC.classList.remove("hidden");
       renderChoices(makeTextChoicesForC(task));
     }
