@@ -17,7 +17,6 @@
     h1{margin:0;font-size:1.3rem}
     .grid{display:grid;grid-template-columns: 1fr 340px;gap:14px;}
     @media (max-width:900px){.grid{grid-template-columns:1fr}}
-
     .card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:14px;}
     .menu{display:grid;gap:12px;grid-template-columns: 1fr 1fr;}
     @media (max-width:650px){.menu{grid-template-columns:1fr}}
@@ -95,9 +94,7 @@
 <body>
   <main class="app">
     <header>
-      <div>
-        <h1>Textaufgaben</h1>
-      </div>
+      <div><h1>Textaufgaben</h1></div>
     </header>
 
     <section id="startMenu">
@@ -163,7 +160,7 @@
           </div>
 
           <div class="taskBox">
-            <p class="taskTitle" id="promptTitle">Aufgabe</p>
+            <p class="taskTitle">Aufgabe</p>
             <p class="taskText" id="promptText">—</p>
             <div class="termLine" id="termLine" style="display:none">—</div>
           </div>
@@ -318,12 +315,104 @@
       try{ payloads.forEach(p => window.parent?.postMessage(p, "*")); }catch(_){}
       try{ payloads.forEach(p => window.top?.postMessage(p, "*")); }catch(_){}
     }
-    function checkAllDone(){
-      if (progress.a.done && progress.b.done && progress.c.done) sendAppSolved();
+
+    // ---------------------------
+    // Difficulty constraints (as requested)
+    // - No factor 0
+    // - No sums/differences in single-digit range (results >= 10)
+    // - Multiplication/Division only in Einmaleins and Zehnereinmaleins
+    //   -> factors 1..10, and also 10×(1..10)
+    // ---------------------------
+
+    function pickOp(){
+      const choice = elOp.value;
+      if (choice !== "mix") return choice;
+      const ops = ["add","sub","mul","div"];
+      return ops[randInt(0, ops.length-1)];
+    }
+
+    function genAdd(){
+      // result 10..100 (avoid single-digit sum)
+      const result = randInt(10, 100);
+      const a = randInt(1, result - 1);
+      const b = result - a;
+      return {a, b, result};
+    }
+
+    function genSub(){
+      // result 10..100 and no single-digit difference
+      const result = randInt(10, 100);
+      const b = randInt(1, 90);
+      const a = b + result;
+      if (a > 100) return genSub();
+      return {a, b, result};
+    }
+
+    function randomFactor1to10No0(){
+      return randInt(1, 10);
+    }
+
+    function genMul(){
+      // Einmaleins (1..10) and Zehnereinmaleins (10×1..10), no factor 0, product <= 100
+      const type = Math.random() < 0.35 ? "ten" : "normal"; // mix in 10× more often-ish
+      let a, b;
+
+      if (type === "ten"){
+        a = 10;
+        b = randomFactor1to10No0();
+      } else {
+        a = randomFactor1to10No0();
+        b = randomFactor1to10No0();
+      }
+      const result = a * b;
+      // avoid trivial 1×1 too often? (optional mild filter)
+      if (result < 10 && Math.random() < 0.6) return genMul();
+      return {a, b, result};
+    }
+
+    function genDiv(){
+      // match mul constraints: dividend is product of allowed factors, divisor is one factor, quotient integer
+      const mul = genMul();
+      // ensure divisor not 1 too often (optional)
+      let divisor = mul.b;
+      let quotient = mul.a;
+      if (Math.random() < 0.5){
+        divisor = mul.a;
+        quotient = mul.b;
+      }
+      const a = mul.result;
+      const b = divisor;
+      const result = quotient;
+      // avoid "a : a = 1" too often
+      if (result === 1 && Math.random() < 0.6) return genDiv();
+      return {a, b, result};
+    }
+
+    function genAdd2to4(){
+      // sum 10..100, at least 2 summands, none 0
+      const count = randInt(2,4);
+      const target = randInt(10, 100);
+      const nums = [];
+      let remaining = target;
+
+      for (let i=0;i<count;i++){
+        const left = count - i;
+        if (left === 1){
+          nums.push(remaining);
+          remaining = 0;
+        } else {
+          // ensure we can still finish with >=1 per remaining slot
+          const maxHere = remaining - (left - 1);
+          const n = randInt(1, Math.min(50, maxHere));
+          nums.push(n);
+          remaining -= n;
+        }
+      }
+      if (nums.some(n => n <= 0) || nums.reduce((s,n)=>s+n,0) !== target) return genAdd2to4();
+      return { nums, result: target };
     }
 
     // --------- TEXT ONLY for category A ----------
-    // No operator symbols, no "a + b", no "a · b", no ":" lines.
     const textOnlyA = {
       add: [
         ({a,b}) => `Addiere ${a} und ${b}.`,
@@ -347,8 +436,8 @@
         ({a,b}) => `Wie oft passt ${b} in ${a}?`
       ],
       addLong: [
-        ({nums}) => `Bilde die Summe von ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`,
-        ({nums}) => `Addiere ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`
+        ({nums}) => `Addiere ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`,
+        ({nums}) => `Bilde die Summe von ${nums.join(", ").replace(/, ([^,]*)$/, " und $1")}.`
       ]
     };
 
@@ -377,59 +466,18 @@
     };
     const opSymbols = { add:"+", sub:"−", mul:"·", div:":" };
 
-    function pickOp(){
-      const choice = elOp.value;
-      if (choice !== "mix") return choice;
-      const ops = ["add","sub","mul","div"];
-      return ops[randInt(0, ops.length-1)];
-    }
-
     function genBinary(op){
-      if (op === "add"){
-        const a = randInt(0,100);
-        const b = randInt(0,100-a);
-        return {a,b, result: a+b};
-      }
-      if (op === "sub"){
-        const a = randInt(0,100);
-        const b = randInt(0,a);
-        return {a,b, result: a-b};
-      }
-      if (op === "mul"){
-        let a,b,p;
-        do{
-          a = randInt(0,12);
-          b = randInt(0,12);
-          p = a*b;
-        }while(p>100);
-        return {a,b, result:p};
-      }
-      const b = randInt(1,12);
-      const q = randInt(0,12);
-      const a = b*q;
-      return {a,b, result:q};
-    }
-
-    function genAdd2to4(){
-      const count = randInt(2,4);
-      const nums = [];
-      let sum = 0;
-      for (let i=0;i<count;i++){
-        const remaining = 100 - sum;
-        const n = (i === count-1) ? randInt(0, remaining) : randInt(0, Math.min(50, remaining));
-        nums.push(n);
-        sum += n;
-      }
-      if (sum === 0) { nums[0] = 1; sum = 1; }
-      return { nums, result: sum };
+      if (op === "add") return genAdd();
+      if (op === "sub") return genSub();
+      if (op === "mul") return genMul();
+      return genDiv();
     }
 
     function buildTask(){
       const op = pickOp();
 
-      // Category A: ALWAYS text-only wording
       if (state.category === "a"){
-        if (op === "add" && Math.random() < 0.35){
+        if (op === "add" && Math.random() < 0.30){
           const data = genAdd2to4();
           const t = textOnlyA.addLong[randInt(0, textOnlyA.addLong.length-1)]({nums:data.nums});
           return { op:"add", text:t, result:data.result };
@@ -440,7 +488,6 @@
         return { op, text:t, result:data.result };
       }
 
-      // Category B/C: keep a and b for terms & distractors
       const data = genBinary(op);
       const tList = textTemplatesBC[op];
       const text = tList[randInt(0, tList.length-1)](data);
@@ -508,7 +555,7 @@
       elTermLine.style.display = "none";
 
       if (state.category === "a"){
-        elPromptText.textContent = task.text; // text only
+        elPromptText.textContent = task.text;
         ansA.value = "";
         areaA.classList.remove("hidden");
         setTimeout(() => { ansA.focus(); ansA.select(); }, 30);
@@ -524,7 +571,6 @@
         return;
       }
 
-      // c
       elPromptText.textContent = task.term;
       areaMC.classList.remove("hidden");
       renderChoices(makeTextChoicesForC(task));
