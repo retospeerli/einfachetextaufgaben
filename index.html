@@ -93,9 +93,7 @@
 </head>
 <body>
   <main class="app">
-    <header>
-      <div><h1>Textaufgaben</h1></div>
-    </header>
+    <header><div><h1>Textaufgaben</h1></div></header>
 
     <section id="startMenu">
       <div class="grid">
@@ -131,8 +129,6 @@
           <h2>Ziel</h2>
           <p>In jeder Kategorie musst du <b>10 Aufgaben richtig</b> lösen.</p>
           <p>Falsche Antworten zählen nicht – du musst korrigieren.</p>
-          <div class="hr"></div>
-          <p>Wenn alle 3 Kategorien fertig sind, wird „app solved“ an LearningView gesendet.</p>
         </aside>
       </div>
     </section>
@@ -199,6 +195,7 @@
     };
 
     const GOAL = 10;
+    const FEEDBACK_MS = 1000;
 
     const startMenu = document.getElementById("startMenu");
     const game = document.getElementById("game");
@@ -238,7 +235,8 @@
       category: null,
       ok: 0,
       bad: 0,
-      current: null
+      current: null,
+      lock: false
     };
 
     function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
@@ -291,11 +289,13 @@
       game.classList.add("hidden");
       clearStatus();
       updateBadges();
+      state.lock = false;
     }
     function showGame(){
       startMenu.classList.add("hidden");
       game.classList.remove("hidden");
       clearStatus();
+      state.lock = false;
     }
 
     function catLabel(cat){
@@ -316,14 +316,6 @@
       try{ payloads.forEach(p => window.top?.postMessage(p, "*")); }catch(_){}
     }
 
-    // ---------------------------
-    // Difficulty constraints (as requested)
-    // - No factor 0
-    // - No sums/differences in single-digit range (results >= 10)
-    // - Multiplication/Division only in Einmaleins and Zehnereinmaleins
-    //   -> factors 1..10, and also 10×(1..10)
-    // ---------------------------
-
     function pickOp(){
       const choice = elOp.value;
       if (choice !== "mix") return choice;
@@ -332,7 +324,6 @@
     }
 
     function genAdd(){
-      // result 10..100 (avoid single-digit sum)
       const result = randInt(10, 100);
       const a = randInt(1, result - 1);
       const b = result - a;
@@ -340,7 +331,6 @@
     }
 
     function genSub(){
-      // result 10..100 and no single-digit difference
       const result = randInt(10, 100);
       const b = randInt(1, 90);
       const a = b + result;
@@ -348,48 +338,37 @@
       return {a, b, result};
     }
 
-    function randomFactor1to10No0(){
-      return randInt(1, 10);
-    }
-
     function genMul(){
-      // Einmaleins (1..10) and Zehnereinmaleins (10×1..10), no factor 0, product <= 100
-      const type = Math.random() < 0.35 ? "ten" : "normal"; // mix in 10× more often-ish
+      const ten = Math.random() < 0.35;
       let a, b;
-
-      if (type === "ten"){
+      if (ten){
         a = 10;
-        b = randomFactor1to10No0();
+        b = randInt(1, 10);
       } else {
-        a = randomFactor1to10No0();
-        b = randomFactor1to10No0();
+        a = randInt(1, 10);
+        b = randInt(1, 10);
       }
       const result = a * b;
-      // avoid trivial 1×1 too often? (optional mild filter)
       if (result < 10 && Math.random() < 0.6) return genMul();
       return {a, b, result};
     }
 
     function genDiv(){
-      // match mul constraints: dividend is product of allowed factors, divisor is one factor, quotient integer
-      const mul = genMul();
-      // ensure divisor not 1 too often (optional)
-      let divisor = mul.b;
-      let quotient = mul.a;
+      const m = genMul();
+      let divisor = m.b;
+      let quotient = m.a;
       if (Math.random() < 0.5){
-        divisor = mul.a;
-        quotient = mul.b;
+        divisor = m.a;
+        quotient = m.b;
       }
-      const a = mul.result;
+      const a = m.result;
       const b = divisor;
       const result = quotient;
-      // avoid "a : a = 1" too often
       if (result === 1 && Math.random() < 0.6) return genDiv();
       return {a, b, result};
     }
 
     function genAdd2to4(){
-      // sum 10..100, at least 2 summands, none 0
       const count = randInt(2,4);
       const target = randInt(10, 100);
       const nums = [];
@@ -401,7 +380,6 @@
           nums.push(remaining);
           remaining = 0;
         } else {
-          // ensure we can still finish with >=1 per remaining slot
           const maxHere = remaining - (left - 1);
           const n = randInt(1, Math.min(50, maxHere));
           nums.push(n);
@@ -412,8 +390,7 @@
       return { nums, result: target };
     }
 
-    // --------- TEXT ONLY for category A ----------
-    const textOnlyA = {
+    const textOnly = {
       add: [
         ({a,b}) => `Addiere ${a} und ${b}.`,
         ({a,b}) => `Bilde die Summe von ${a} und ${b}.`,
@@ -441,29 +418,6 @@
       ]
     };
 
-    // For categories B/C we need term symbols
-    const textTemplatesBC = {
-      add: [
-        ({a,b}) => `Bilde die Summe: ${a} + ${b} = ___`,
-        ({a,b}) => `Addiere zur Zahl ${a} die Zahl ${b}.`,
-        ({a,b}) => `Erhöhe ${a} um ${b}.`
-      ],
-      sub: [
-        ({a,b}) => `Bestimme die Differenz: ${a} − ${b} = ___`,
-        ({a,b}) => `Subtrahiere von ${a} die Zahl ${b}.`,
-        ({a,b}) => `Verringere ${a} um ${b}.`
-      ],
-      mul: [
-        ({a,b}) => `Multipliziere: ${a} · ${b} = ___`,
-        ({a,b}) => `Bestimme das Produkt von ${a} und ${b}.`,
-        ({a,b}) => `Vervielfache ${a} mit ${b}.`
-      ],
-      div: [
-        ({a,b}) => `Dividiere: ${a} : ${b} = ___`,
-        ({a,b}) => `Bestimme den Quotienten von ${a} und ${b}.`,
-        ({a,b}) => `Wie oft passt ${b} in ${a}?`
-      ]
-    };
     const opSymbols = { add:"+", sub:"−", mul:"·", div:":" };
 
     function genBinary(op){
@@ -479,17 +433,17 @@
       if (state.category === "a"){
         if (op === "add" && Math.random() < 0.30){
           const data = genAdd2to4();
-          const t = textOnlyA.addLong[randInt(0, textOnlyA.addLong.length-1)]({nums:data.nums});
+          const t = textOnly.addLong[randInt(0, textOnly.addLong.length-1)]({nums:data.nums});
           return { op:"add", text:t, result:data.result };
         }
         const data = genBinary(op);
-        const tList = textOnlyA[op];
+        const tList = textOnly[op];
         const t = tList[randInt(0, tList.length-1)](data);
         return { op, text:t, result:data.result };
       }
 
       const data = genBinary(op);
-      const tList = textTemplatesBC[op];
+      const tList = textOnly[op];                 // prompt in b is also text-only
       const text = tList[randInt(0, tList.length-1)](data);
       const term = `${data.a} ${opSymbols[op]} ${data.b}`;
       return { op, text, term, result:data.result, a:data.a, b:data.b };
@@ -503,16 +457,16 @@
       return shuffle([{label:correct, ok:true}, ...wrongs.map(w => ({label:w, ok:false}))]);
     }
 
-    function textFromOpBC(op, a, b){
-      const tList = textTemplatesBC[op];
+    function textFromOp(op, a, b){
+      const tList = textOnly[op];
       return tList[randInt(0, tList.length-1)]({a,b});
     }
 
     function makeTextChoicesForC(task){
-      const correct = textFromOpBC(task.op, task.a, task.b);
+      const correct = textFromOp(task.op, task.a, task.b);
       const ops = ["add","sub","mul","div"].filter(o => o !== task.op);
       const wrongOps = shuffle(ops).slice(0,3);
-      const wrongs = wrongOps.map(o => textFromOpBC(o, task.a, task.b));
+      const wrongs = wrongOps.map(o => textFromOp(o, task.a, task.b));
 
       const uniq = new Set([correct]);
       const finalWrongs = [];
@@ -521,7 +475,7 @@
       }
       while (finalWrongs.length < 3){
         const o = ops[randInt(0, ops.length-1)];
-        const w = textFromOpBC(o, task.a, task.b);
+        const w = textFromOp(o, task.a, task.b);
         if (!uniq.has(w)){ uniq.add(w); finalWrongs.push(w); }
       }
       return shuffle([{label:correct, ok:true}, ...finalWrongs.map(w => ({label:w, ok:false}))]);
@@ -563,7 +517,7 @@
       }
 
       if (state.category === "b"){
-        elPromptText.textContent = task.text;
+        elPromptText.textContent = task.text;    // text only
         elTermLine.style.display = "block";
         elTermLine.innerHTML = `<span class="muted">Term:</span> ____`;
         areaMC.classList.remove("hidden");
@@ -571,12 +525,19 @@
         return;
       }
 
-      elPromptText.textContent = task.term;
+      elPromptText.textContent = task.term;      // category c: term prompt (requested)
       areaMC.classList.remove("hidden");
       renderChoices(makeTextChoicesForC(task));
     }
 
     function nextTask(){ renderTask(buildTask()); }
+
+    function finishCategory(){
+      progress[state.category].done = true;
+      updateBadges();
+      if (progress.a.done && progress.b.done && progress.c.done) sendAppSolved();
+      showMenu();
+    }
 
     function correct(){
       play(sfx.correct);
@@ -585,10 +546,12 @@
 
       if (state.ok >= GOAL){
         setStatus("ok","Fertig ✅","Zurück ins Menü…");
-        setTimeout(() => finishCategory(), 450);
+        state.lock = true;
+        setTimeout(() => { state.lock = false; finishCategory(); }, FEEDBACK_MS);
       } else {
         setStatus("ok","Richtig ✅",`${state.ok}/10`);
-        setTimeout(() => nextTask(), 280);
+        state.lock = true;
+        setTimeout(() => { state.lock = false; nextTask(); }, FEEDBACK_MS);
       }
     }
 
@@ -597,9 +560,12 @@
       state.bad += 1;
       updateGameStats();
       setStatus("bad","Falsch ❌", detail);
+      state.lock = true;
+      setTimeout(() => { state.lock = false; }, FEEDBACK_MS);
     }
 
     function checkA(){
+      if (state.lock) return;
       const task = state.current;
       const raw = ansA.value;
       const n = Number.parseInt(raw, 10);
@@ -626,6 +592,7 @@
     }
 
     function checkMC(){
+      if (state.lock) return;
       const task = state.current;
       const sel = getSelectedChoice();
       if (!sel){
@@ -642,24 +609,17 @@
       }
     }
 
-    function finishCategory(){
-      progress[state.category].done = true;
-      updateBadges();
-      if (progress.a.done && progress.b.done && progress.c.done) sendAppSolved();
-      showMenu();
-    }
-
     function startCategory(cat){
       state.category = cat;
       state.ok = 0;
       state.bad = 0;
+      state.lock = false;
       elCatName.textContent = catLabel(cat);
       updateGameStats();
       showGame();
       nextTask();
     }
 
-    // Menu events
     btnCatA.addEventListener("click", () => startCategory("a"));
     btnCatB.addEventListener("click", () => startCategory("b"));
     btnCatC.addEventListener("click", () => startCategory("c"));
@@ -671,7 +631,6 @@
       updateBadges();
     });
 
-    // Game events
     btnBackToMenu.addEventListener("click", () => showMenu());
     btnCheckA.addEventListener("click", checkA);
     ansA.addEventListener("keydown", (e) => {
@@ -693,7 +652,6 @@
       }
     });
 
-    // Init
     updateBadges();
     showMenu();
   </script>
